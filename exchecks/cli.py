@@ -1,8 +1,5 @@
 import argparse
 
-from .configuration import config
-from .configuration import DATA_FILE
-
 COMMANDS = dict()
 
 

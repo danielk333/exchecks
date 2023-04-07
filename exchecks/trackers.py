@@ -1,49 +1,58 @@
 import psutil
-import threading
+import datetime
+
+from .configuration import CHECKS
+from .configuration import get_logger
 
 
 class Tracker:
-    def watch(self):
-        raise NotImplementedError('Implement this')
+    def __init__(self, pid):
+        self.logger, fh = get_logger(pid, __name__)
 
-    def check(self):
-        raise NotImplementedError('Implement this')
+        self.logger.debug('Tracker.__init__')
+        self.pid = pid
+        self.proc = psutil.Process(self.pid)
+        self.term = self.proc.parent()
+        self.procs = {}
+        self.logger.debug(f'Tracker.proc={self.proc}')
+        self.logger.debug(f'Tracker.term={self.term}')
+        self.logger.debug('Tracker.__init__ done')
 
-    def success(self):
-        raise NotImplementedError('Implement this')
+    def get_procs(self):
+        children = self.term.children()
+        self.logger.debug(f'Tracker.get_procs: {len(children)} procs found')
 
+        for proc in children:
+            if proc.pid == self.pid:
+                continue
+            if proc.pid not in self.procs:
+                self.procs[proc.pid] = proc
 
-def psutil_wait(proc, result):
-    result['exit_code'] = proc.wait()
+        self.procs = {
+            pid: proc 
+            for pid, proc in self.procs.items() 
+            if proc.is_running()
+        }
 
+        self.logger.debug('Tracker.get_procs: done')
 
-class PS(Tracker):
+    def report(self):
+        now = datetime.datetime.now()
+        self.logger.debug(f'Tracker.report: {now}')
 
-    def __init__(self, name):
-        self.pid = None
-        self.name = None
-        for proc in psutil.process_iter(['pid', 'name']):
-            if proc.info['name'] == name:
-                self.pid = proc.info['pid']
-                self.name = proc.info['name']
-                break
-        if self.pid is None:
-            raise ValueError(f'Could not find "{name}" process')
-        self.p = psutil.Process(self.pid)
-        self.watcher = None
-        self.result = {}
-        self.watch()
+        for pid in self.procs:
+            data_file = CHECKS / f'{pid}.data'
+            if not data_file.is_file():
+                data_file.touch()
+            with open(data_file, 'a') as df:
+                df.write(f'{now} {self.procs[pid].name()} alive\n')
 
-    def watch(self):
-        self.watcher = threading.Thread(
-            target=psutil_wait, 
-            args=(self.p, self.result),
-        )
-        self.watcher.start()
+        data_files = CHECKS.glob('*.data')
+        for file in data_files:
+            pid = int(file.name.split('.')[0])
+            if pid in self.procs:
+                continue
+            with open(file, 'a') as df:
+                df.write(f'{now} dead\n')
 
-    def check(self):
-        return self.watcher.is_alive()
-
-    def success(self):
-        self.watcher.join(timeout=3)
-        return self.result['exit_code']
+        self.logger.debug('Tracker.report: done')
