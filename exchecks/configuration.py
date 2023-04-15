@@ -4,20 +4,27 @@ import os
 import logging
 
 
-def get_logger(fname, name, level=logging.DEBUG):
+def setup_logging(args):
+    level = logging.DEBUG if args.verbose else logging.INFO
 
-    logfile = CONF_FOLDER / f'{fname}.log'
+    if args.persist:
+        logfile = get_logfile(args.name)
+        fh = logging.FileHandler(logfile, 'w')
+        fh.setLevel(level)
 
-    logger = logging.getLogger(name)
+    for name, item in logging.root.manager.loggerDict.items():
+        if isinstance(item, logging.Logger):
+            item.setLevel(level)
+            if args.persist:
+                item.addHandler(fh)
 
-    logger.setLevel(level)
-    logger.propagate = False
 
-    fh = logging.FileHandler(logfile, 'w')
-    fh.setLevel(level)
-    logger.addHandler(fh)
+def get_datafile(name):
+    return CHECKS / f'{name}.data'
 
-    return logger, fh
+
+def get_logfile(fname):
+    return CONF_FOLDER / f'{fname}.log'
 
 
 config = configparser.ConfigParser()
@@ -38,14 +45,18 @@ if not CHECKS.is_dir():
     CHECKS.mkdir(parents=True)
 
 DEFAULT = {
-    'General': {
+    'Checkers': {
+        'check-interval': 10.0,
     },
+    'Client': {
+        'address': '127.0.0.1',
+        'port': 8888,
+    },
+    'Server': {
+    }
 }
 
 config.read_dict(DEFAULT)
 
 if CONF_FILE.exists():
     config.read([CONF_FILE])
-else:
-    with open(CONF_FILE, 'w') as configfile:
-        config.write(configfile)

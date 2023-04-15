@@ -1,90 +1,53 @@
-#!/usr/bin/env python
+import asyncio
 
-import socket
-import sys
-import time
+import tornado.web
 
-# Create a TCP/IP socket
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+from .cli import add_command
 
-# Bind the socket to the port
-server_address = ('localhost', 10000)
-print(f'starting up on {server_address[0]} port {server_address[1]}')
-sock.bind(server_address)
-
-# Listen for incoming connections
-sock.listen(1)
-
-code = 'utf-8'
-
-packet_size = 1
-max_len = 256
-run_server = True
-timeout = 5.0
-end_char = '\n'
+# hosts JS that logs and displays current data
+# should be able to recover the data, from the data json until delted
 
 
-def send_msg(msg, connection):
-    msg += end_char
-    connection.sendall(msg.encode(code))
+class MainHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.write("Hello, world")
 
 
-while run_server:
-    # Wait for a connection
-    print(f'waiting for a connection')
-    connection, client_address = sock.accept()
+class CheckReport(tornado.web.RequestHandler):
+    def get(self):
+        self.write("Hello, world")
 
-    try:
-        print(f'connection from {client_address}')
-        t0 = time.time()
-        dt = 0.0
 
-        while dt < timeout:
-            dt = time.time() - t0
+def make_app():
+    return tornado.web.Application([
+        (r"/", MainHandler),
+        (r"/report", CheckReport)
+    ])
 
-            data = ''
-            while len(data) < max_len:
-                data_raw = connection.recv(packet_size)
-                if data_raw == end_char.encode(code):
-                    break
-                elif len(data_raw) > 0:
-                    data += data_raw.decode(code)
-                else:
-                    dt = time.time() - t0
-                    if dt >= timeout:
-                        break
 
-            command = False
+async def launch(port):
+    app = make_app()
+    app.listen(port)
+    await asyncio.Event().wait()
 
-            if data == 'arm off':
-                send_msg('Black Knight: "Tis but a scratch."', connection)
-                command = True
 
-            if data == 'exit':
-                print('Client exiting')
-                send_msg('c-exit', connection)
-                break
+def main(args):
+    asyncio.run(launch(args.port))
 
-            if data == 'shutdown':
-                run_server = False
-                send_msg('Shutting down server', connection)
-                send_msg('c-exit', connection)
-                break
 
-            if not data:
-                send_msg('no command received', connection)
-            else:
-                print(f'received "{data}"')
-                t0 = time.time()
+def parser_build(parser):
+    parser.add_argument(
+        "-p", "--port",
+        default=8888, type=int,
+        help="port to serve website on",
+    )
 
-            if command:
-                t0 = time.time()
-            else:
-                send_msg('command not found', connection)
+    return parser
 
-    finally:
-        # Clean up the connection
-        connection.close()
 
-print('closing server')
+add_command(
+    name='server',
+    function=main,
+    parser_build=parser_build,
+    command_help='Launch website UI & report server',
+)

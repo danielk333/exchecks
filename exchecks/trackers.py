@@ -1,26 +1,29 @@
 import psutil
 import datetime
+import logging
 
-from .configuration import CHECKS
-from .configuration import get_logger
+from .configuration import get_datafile
+
+logger = logging.getLogger(__name__)
 
 
 class Tracker:
-    def __init__(self, pid):
-        self.logger, fh = get_logger(pid, __name__)
+    def __init__(self, pid, name):
+        logger.debug('Tracker.__init__')
 
-        self.logger.debug('Tracker.__init__')
+        self.name = name
         self.pid = pid
         self.proc = psutil.Process(self.pid)
         self.term = self.proc.parent()
         self.procs = {}
-        self.logger.debug(f'Tracker.proc={self.proc}')
-        self.logger.debug(f'Tracker.term={self.term}')
-        self.logger.debug('Tracker.__init__ done')
+        logger.debug(f'Tracker.pid ={self.pid}')
+        logger.debug(f'Tracker.proc={self.proc}')
+        logger.info(f'Tracker.term={self.term}')
+        logger.debug('Tracker.__init__ done')
 
     def get_procs(self):
         children = self.term.children()
-        self.logger.debug(f'Tracker.get_procs: {len(children)} procs found')
+        logger.debug(f'Tracker.get_procs: {len(children)} procs found')
 
         for proc in children:
             if proc.pid == self.pid:
@@ -28,31 +31,34 @@ class Tracker:
             if proc.pid not in self.procs:
                 self.procs[proc.pid] = proc
 
+        logger.debug('Tracker.get_procs: done')
+
+    def report(self):
+        now = datetime.datetime.now()
+        logger.debug(f'Tracker.report: {now}')
+
+        data_file = get_datafile(self.name)
+        if not data_file.is_file():
+            data_file.touch()
+    
+        with open(data_file, 'a') as df:
+            for pid, proc in self.procs.items():
+                status = 'alive' if proc.is_running() else 'dead'
+                df.write(f'{pid} {now} {status}\n')
+
         self.procs = {
             pid: proc 
             for pid, proc in self.procs.items() 
             if proc.is_running()
         }
 
-        self.logger.debug('Tracker.get_procs: done')
+        logger.debug('Tracker.report: done')
 
-    def report(self):
+    def finish(self, exit_code):
         now = datetime.datetime.now()
-        self.logger.debug(f'Tracker.report: {now}')
-
-        for pid in self.procs:
-            data_file = CHECKS / f'{pid}.data'
-            if not data_file.is_file():
-                data_file.touch()
-            with open(data_file, 'a') as df:
-                df.write(f'{now} {self.procs[pid].name()} alive\n')
-
-        data_files = CHECKS.glob('*.data')
-        for file in data_files:
-            pid = int(file.name.split('.')[0])
-            if pid in self.procs:
-                continue
-            with open(file, 'a') as df:
-                df.write(f'{now} dead\n')
-
-        self.logger.debug('Tracker.report: done')
+        data_file = get_datafile(self.name)
+        if not data_file.is_file():
+            data_file.touch()
+    
+        with open(data_file, 'a') as df:
+            df.write(f'exit {now} {exit_code}\n')
